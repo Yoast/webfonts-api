@@ -8,15 +8,23 @@
  */
 
 /**
- * Webfonts Registry.
+ * The Webfonts Registry handles the registration of webfonts and in-memory storage
+ * of the validated registered webfonts.
  *
- * This registry exists to handle all webfonts.
+ * Each webfont is stored in the registry by a unique key composed of its
+ * font-family.font-style.font-weight.
  *
- * It handles the following within the API:
- *  - loads the bundled provider files into memory;
- *  - registers each provider with the API by:
- *       1. creating an instance (object);
- *       2. storing it in-memory (by its unique provider ID) for use with the API;
+ * To optimize querying by provider ID {@see WP_Webfonts_Registry::get_by_provider()},
+ * each webfont is also associated to its provider in an in-memory lookup map.
+ *
+ * During registration {@see WP_Webfonts_Registry::register()}, the following tasks
+ * occur:
+ *    * snake_case properties are converted into
+ *      kebab-case (i.e. valid CSS properties).
+ *    * require properties are validated
+ *      {@see WP_Webfonts_Schema_Validator::is_valid_schema()}.
+ *    * optional properties are set if missing, else checked and, if invalid, set to a
+ *      default value {@see WP_Webfonts_Schema_Validator::set_valid_properties()}.
  *
  * @since 5.9.0
  */
@@ -112,31 +120,31 @@ class WP_Webfonts_Registry {
 	 * @param array $webfont {
 	 *     Webfont definition.
 	 *
-	 *    @type string       $provider              The provider ID (e.g. 'local', 'google').
-	 *    @type string       $fontFamily            The @font-face font-family property.
-	 *    @type string       $fontWeight            The @font-face font-weight property.
-	 *                                              The font-weight can be a single value, or a range.
-	 *                                              If a single value, then the font-weight can either be
-	 *                                              a numeric value (400, 700, etc), or a word value (normal, bold, etc).
-	 *                                              If a range, then the font-weight can be a numeric range
-	 *                                              using 2 values, separated by a space ('100 700').
-	 *    @type string       $fontStyle             The @font-face font-style property.
-	 *                                              The font-style can be a valid CSS value (normal, italic etc).
-	 *    @type string       $fontDisplay           The @font-face font-display property.
-	 *                                              Accepted values: 'auto', 'block', 'fallback', 'swap'.
-	 *    @type array|string $src                   The @font-face src property.
-	 *                                              The src can be a single URL, or an array of URLs.
-	 *    @type string       $fontStretch           The @font-face font-stretch property.
-	 *    @type string       $fontVariant           The @font-face font-variant property.
-	 *    @type string       $fontFeatureSettings   The @font-face font-feature-settings property.
-	 *    @type string       $fontVariationSettings The @font-face font-variation-settings property.
-	 *    @type string       $lineHeightOverride    The @font-face line-gap-override property.
-	 *    @type string       $sizeAdjust            The @font-face size-adjust property.
-	 *    @type string       $unicodeRange          The @font-face unicode-range property.
-	 *    @type string       $ascendOverride        The @font-face ascend-override property.
-	 *    @type string       $descendOverride       The @font-face descend-override property.
+	 *    @type string       $provider                The provider ID (e.g. 'local', 'google').
+	 *    @type string       $font_family             The @font-face font-family property.
+	 *    @type string       $font_weight             The @font-face font-weight property.
+	 *                                                The font-weight can be a single value, or a range.
+	 *                                                If a single value, then the font-weight can either be
+	 *                                                a numeric value (400, 700, etc), or a word value
+	 *                                                (normal, bold, etc).
+	 *                                                If a range, then the font-weight can be a numeric range
+	 *                                                using 2 values, separated by a space ('100 700').
+	 *    @type string       $font_style              The @font-face font-style property.
+	 *                                                The font-style can be a valid CSS value (normal, italic etc).
+	 *    @type string       $font_display            The @font-face font-display property.
+	 *                                                Accepted values: 'auto', 'block', 'fallback', 'swap'.
+	 *    @type array|string $src                     The @font-face src property.
+	 *                                                The src can be a single URL, or an array of URLs.
+	 *    @type string       $font_stretch            The @font-face font-stretch property.
+	 *    @type string       $font_variant            The @font-face font-variant property.
+	 *    @type string       $font_feature_settings   The @font-face font-feature-settings property.
+	 *    @type string       $font_variation_settings The @font-face font-variation-settings property.
+	 *    @type string       $line_gap_override       The @font-face line-gap-override property.
+	 *    @type string       $size_adjust             The @font-face size-adjust property.
+	 *    @type string       $unicode_range           The @font-face unicode-range property.
+	 *    @type string       $ascend_override         The @font-face ascend-override property.
+	 *    @type string       $descend_override        The @font-face descend-override property.
 	 * }
-	 *
 	 * @return string Registration key.
 	 */
 	public function register( array $webfont ) {
@@ -162,6 +170,24 @@ class WP_Webfonts_Registry {
 	}
 
 	/**
+	 * Convert snake_case keys into kebab-case.
+	 *
+	 * @since 5.9.0
+	 *
+	 * @param array $webfont Webfont definition.
+	 * @return array Webfont with kebab-case properties (keys).
+	 */
+	private function convert_to_kebab_case( array $webfont ) {
+		$kebab_case = array();
+		foreach ( $webfont as $key => $value ) {
+			$converted_key                = str_replace( '_', '-', $key );
+			$kebab_case[ $converted_key ] = $value;
+		}
+
+		return $kebab_case;
+	}
+
+	/**
 	 * Store the webfont for query by request.
 	 *
 	 * This container provides a performant way to quickly query webfonts by
@@ -184,21 +210,6 @@ class WP_Webfonts_Registry {
 	}
 
 	/**
-	 * Convert camelCase parameters into kebab_case.
-	 *
-	 * @since 5.9.0
-	 *
-	 * @param array $webfont Webfont definition.
-	 * @return array Webfont with kebab_case parameters (keys).
-	 */
-	private function convert_to_kebab_case( array $webfont ) {
-		$kebab_case = preg_replace( '/(?<!^)[A-Z]/', '-$0', array_keys( $webfont ) );
-		$kebab_case = array_map( 'strtolower', $kebab_case );
-
-		return array_combine( $kebab_case, array_values( $webfont ) );
-	}
-
-	/**
 	 * Generates the registration key.
 	 *
 	 * Format: font-family.font-style.font-weight
@@ -206,7 +217,7 @@ class WP_Webfonts_Registry {
 	 *
 	 * @since 5.9.0
 	 *
-	 * @param string[] $webfont Webfont definition.
+	 * @param array $webfont Webfont definition.
 	 * @return string Registration key.
 	 */
 	private function generate_registration_key( array $webfont ) {
@@ -229,10 +240,6 @@ class WP_Webfonts_Registry {
 	 * @return string Font-family as a key.
 	 */
 	private function convert_font_family_into_key( $font_family ) {
-		if ( ! is_string( $font_family ) || '' === $font_family ) {
-			return '';
-		}
-
 		return sanitize_title( $font_family );
 	}
 }

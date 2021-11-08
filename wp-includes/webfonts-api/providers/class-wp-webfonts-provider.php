@@ -12,6 +12,20 @@
 /**
  * Abstract class for Webfonts API providers.
  *
+ * The starting point to building a webfont service provider.
+ *
+ * What is a Provider?
+ *
+ * A provider contains the know-how (business logic) for how to
+ * process its specific font service (i.e. local or remote)
+ * and how to generate the `@font-face` styles for its service.
+ *
+ * It receives a collection of webfonts from the Controller
+ * {@see WP_Webfonts_Provider::set_setfonts()}, and when requested
+ * {@see WP_Webfonts_Provider::get_css()}, it transforms them
+ * into styles (in a performant way for the provider service
+ * it manages).
+ *
  * @since 5.9.0
  */
 abstract class WP_Webfonts_Provider {
@@ -44,26 +58,26 @@ abstract class WP_Webfonts_Provider {
 	protected $webfonts = array();
 
 	/**
-	 * Array of resources hints.
-	 *
-	 * Keyed by relation-type:
-	 *
-	 *      @type string $key => @type array resource hint.
+	 * Array of resources hints, used to render the resource `<link>` in the `<head>`.
 	 *
 	 * @since 5.9.0
 	 *
-	 * @var array
+	 * @var string[] {
+	 *      Resource attributes for each relation type (e.g. 'preconnect' or 'prerender').
+	 *
+	 *      @type string $relation_type => array {
+	 *         Array of resource attributes.
+	 *
+	 *         @type string $href        URL to include in resource hints. Required.
+	 *         @type string $as          Optional. How the browser should treat the resource
+	 *                                   (`script`, `style`, `image`, `document`, etc).
+	 *         @type string $crossorigin Optional. Indicates the CORS policy of the specified resource.
+	 *         @type float  $pr          Optional. Expected probability that the resource hint will be used.
+	 *         @type string $type        Optional. Type of the resource (`text/html`, `text/css`, etc).
+	 *     }
+	 * }
 	 */
 	protected $resource_hints = array();
-
-	/**
-	 * Whether the provider fetches external resources or not.
-	 *
-	 * @since 5.9.0
-	 *
-	 * @var bool
-	 */
-	protected $is_external = true;
 
 	/**
 	 * Get the provider's unique ID.
@@ -77,21 +91,10 @@ abstract class WP_Webfonts_Provider {
 	}
 
 	/**
-	 * Get the root URL for the provider.
+	 * Sets this provider's webfonts property.
 	 *
-	 * @since 5.9.0
-	 *
-	 * @return string
-	 */
-	public function get_root_url() {
-		return $this->root_url;
-	}
-
-	/**
-	 * Sets the webfonts.
-	 *
-	 * The webfonts have been validated, are in kebab_case, and
-	 * are arranged by provider.
+	 * The API's Controller passes this provider's webfonts
+	 * for processing here in the provider.
 	 *
 	 * @since 5.9.0
 	 *
@@ -99,55 +102,45 @@ abstract class WP_Webfonts_Provider {
 	 */
 	public function set_webfonts( array $webfonts ) {
 		$this->webfonts = $webfonts;
-
-		foreach ( $this->webfonts as $registered_key => $webfont ) {
-			$this->webfonts[ $registered_key ] = $this->prepare( $webfont );
-		}
 	}
 
 	/**
-	 * Prepares the given webfont.
+	 * Gets the `@font-face` CSS for the provider's webfonts.
+	 *
+	 * This method is where the provider does it processing to build the
+	 * needed `@font-face` CSS for all of its webfonts. Specifics of how
+	 * this processing is done is contained in each provider.
 	 *
 	 * @since 5.9.0
 	 *
-	 * @param array $webfont Webfont to validate.
-	 * @return array
-	 */
-	protected function prepare( array $webfont ) {
-		return $webfont;
-	}
-
-	/**
-	 * Get the CSS for the font.
-	 *
-	 * @since 5.9.0
-	 *
-	 * @return string Webfonts CSS.
+	 * @return string The `@font-face` CSS.
 	 */
 	abstract public function get_css();
 
 	/**
-	 * Get cached styles from a remote URL.
+	 * Gets cached styles from a remote URL.
 	 *
 	 * @since 5.9.0
 	 *
-	 * @param string $id               An ID used to cache the styles.
-	 * @param string $url              The URL to fetch.
-	 * @param array  $args             The arguments to pass to wp_remote_get().
-	 * @param array  $additional_props Additional properties to add to the @font-face styles.
+	 * @param string $id   An ID used to cache the styles.
+	 * @param string $url  The URL to fetch.
+	 * @param array  $args Optional. The arguments to pass to `wp_remote_get()`.
+	 *                     Default empty array.
 	 * @return string The styles.
 	 */
-	public function get_cached_remote_styles( $id, $url, array $args = array(), array $additional_props = array() ) {
+	protected function get_cached_remote_styles( $id, $url, array $args = array() ) {
 		$css = get_site_transient( $id );
 
 		// Get remote response and cache the CSS if it hasn't been cached already.
 		if ( false === $css ) {
 			$css = $this->get_remote_styles( $url, $args );
 
-			// Early return if the request failed.
-			// Cache an empty string for 60 seconds to avoid bottlenecks.
+			/*
+			 * Early return if the request failed.
+			 * Cache an empty string for 60 seconds to avoid bottlenecks.
+			 */
 			if ( empty( $css ) ) {
-				set_site_transient( $id, '', 60 );
+				set_site_transient( $id, '', MINUTE_IN_SECONDS );
 				return '';
 			}
 
@@ -155,28 +148,20 @@ abstract class WP_Webfonts_Provider {
 			set_site_transient( $id, $css, MONTH_IN_SECONDS );
 		}
 
-		// If there are additional props not included in the CSS provided by the API, add them to the final CSS.
-		foreach ( $additional_props as $prop ) {
-			$css = str_replace(
-				'@font-face {',
-				'@font-face {' . $prop . ':' . $this->params[ $prop ] . ';',
-				$css
-			);
-		}
-
 		return $css;
 	}
 
 	/**
-	 * Get styles from a remote URL.
+	 * Gets styles from the remote font service via the given URL.
 	 *
 	 * @since 5.9.0
 	 *
 	 * @param string $url  The URL to fetch.
-	 * @param array  $args The arguments to pass to wp_remote_get().
+	 * @param array  $args Optional. The arguments to pass to `wp_remote_get()`.
+	 *                     Default empty array.
 	 * @return string The styles on success. Empty string on failure.
 	 */
-	public function get_remote_styles( $url, array $args = array() ) {
+	protected function get_remote_styles( $url, array $args = array() ) {
 		// Use a modern user-agent, to get woff2 files.
 		$args['user-agent'] = 'Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:73.0) Gecko/20100101 Firefox/73.0';
 
@@ -193,24 +178,18 @@ abstract class WP_Webfonts_Provider {
 	}
 
 	/**
-	 * Get the provider's resource hints.
+	 * Gets the provider's resource hints.
+	 *
+	 * The Controller calls this method {@see WP_Webfonts_Controller::get_resource_hints()}
+	 * when the `'wp_resource_hints'` filter fires.
 	 *
 	 * @since 5.9.0
 	 *
-	 * @return array
+	 * @return string[] Array of resource attributes.
+	 *                  See {@see WP_Webfonts_Provider::$resource_hints} for
+	 *                  the list of resource hints.
 	 */
 	public function get_resource_hints() {
 		return $this->resource_hints;
-	}
-
-	/**
-	 * Whether the provider fetches external resources or not.
-	 *
-	 * @since 5.9.0
-	 *
-	 * @return bool
-	 */
-	public function is_external() {
-		return $this->is_external;
 	}
 }

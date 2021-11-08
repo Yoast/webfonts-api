@@ -8,9 +8,16 @@
  */
 
 /**
- * Webfonts Schema Validator.
+ * The validator checks ensures a given webfont is ready for processing
+ * in the API. After processing, the API can trust each webfont schema,
+ * meaning no additional validation is needed within the API.
  *
- * Validates the webfont schema.
+ * Required webfont properties are validated {@see WP_Webfonts_Schema_Validator::is_valid_schema()}
+ * and optional webfont properties are set if missing, else checked and, if invalid, set to a
+ * default value {@see WP_Webfonts_Schema_Validator::set_valid_properties()}.
+ *
+ * The validator is a dependency to the `WP_Webfonts_Registry` which
+ * interacts with this validator before registering a webfont.
  *
  * @since 5.9.0
  */
@@ -80,7 +87,6 @@ class WP_Webfonts_Schema_Validator {
 		'font-style'   => 'normal',
 		'font-weight'  => '400',
 		'font-display' => 'fallback',
-		'is-external'  => false,
 	);
 
 	/**
@@ -126,7 +132,6 @@ class WP_Webfonts_Schema_Validator {
 	 * @return bool True if valid. False if invalid.
 	 */
 	private function is_valid_provider( array $webfont ) {
-
 		if (
 			empty( $webfont['provider'] ) ||
 			! is_string( $webfont['provider'] )
@@ -168,7 +173,7 @@ class WP_Webfonts_Schema_Validator {
 	 * @param array $webfont Webfont to validate.
 	 * @return bool True if valid. False if invalid.
 	 */
-	private function is_src_valid( $webfont ) {
+	private function is_src_valid( array $webfont ) {
 		if (
 			empty( $webfont['src'] ) ||
 			(
@@ -253,7 +258,7 @@ class WP_Webfonts_Schema_Validator {
 			 * Skip valid configuration parameters
 			 * (these are configuring the webfont but are not @font-face properties).
 			 */
-			if ( 'provider' === $property || 'provider-params' === $property || 'is-external' === $property ) {
+			if ( 'provider' === $property || 'provider-params' === $property ) {
 				continue;
 			}
 
@@ -276,7 +281,7 @@ class WP_Webfonts_Schema_Validator {
 		) {
 			trigger_error( __( 'Webfont font style must be a non-empty string.' ) );
 
-		} elseif ( // Bail out if the font-weight is a valid value.
+		} elseif ( // Bail out if the font-style is a valid value.
 			in_array( $this->webfont['font-style'], self::VALID_FONT_STYLE, true ) ||
 			preg_match( '/^oblique\s+(\d+)%/', $this->webfont['font-style'] )
 		) {
